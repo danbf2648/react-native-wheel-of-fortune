@@ -15,24 +15,32 @@ import { snap } from '@popmotion/popcorn';
 
 const { width } = Dimensions.get('screen');
 
-const numberOfSegments = 12;
 const wheelSize = width * 0.95;
 const fontSize = 26;
 const oneTurn = 360;
-const angleBySegment = oneTurn / numberOfSegments;
-const angleOffset = angleBySegment / 2;
+let angleBySegment;
+let angleOffset;
+
 const knobFill = color({ hue: 'purple' });
 let _angle = new Animated.Value(0);
 let angle = 0;
 
 
-const makeWheel = () => {
-  const data = Array.from({ length: numberOfSegments }).fill(1);
+const makeWheel = (horses) => {
+
+ 
+  const data = Array.from({ length: horses.length }).fill(1);
+
+  console.log(data);
   const arcs = d3Shape.pie()(data);
+
+  console.log(arcs);
+
   const colors = color({
     luminosity: 'dark',
-    count: numberOfSegments
+    count: horses.length
   });
+
 
   return arcs.map((arc, index) => {
     const instance = d3Shape
@@ -41,17 +49,20 @@ const makeWheel = () => {
       .outerRadius(width / 2)
       .innerRadius(20);
 
-    
     return {
       path: instance(arc),
       color: colors[index],
-      value: Math.round(Math.random() * 10 + 1) * 200, //[200, 2200]
+      value: horses[index].getAttribute("name"), //[200, 2200]
       centroid: instance.centroid(arc)
     };
+    
   });
 };
 
-const RenderKnob = () => {
+const RenderKnob = (props) => {
+  angleBySegment = oneTurn / props.horseTotal;
+  angleOffset = angleBySegment / 2;
+
   const knobSize = 30;
   // [0, numberOfSegments]
   const YOLO = Animated.modulo(
@@ -110,11 +121,16 @@ const styles = StyleSheet.create({
 });
 
 RenderSvgWheel = (props) => {
+
+  angleBySegment = oneTurn / props.horses.length;
+  angleOffset = angleBySegment / 2;
+
+
 if(props.wheelyData){
   return (
     
     <View style={styles.container}>
-      <RenderKnob></RenderKnob>
+      <RenderKnob horseTotal={props.horses.length}></RenderKnob>
       
       <Animated.View
         style={{
@@ -144,15 +160,14 @@ if(props.wheelyData){
             props.wheelyData.map((arc, i) => {
               const [x, y] = arc.centroid;
               const number = arc.value.toString();
-              console.log("test???");
-             
            
+              console.log(arc.value);
               return (
                 <G key={`arc-${i}`}>
-                  {console.log(arc)}
+                
                   <Path d={arc.path} fill={arc.color} />
                   <G
-                    rotation={(i * oneTurn) / numberOfSegments + angleOffset}
+                    rotation={(i * oneTurn) / props.horses.length + angleOffset}
                     origin={`${x}, ${y}`}
                   >
                     <Text
@@ -163,18 +178,8 @@ if(props.wheelyData){
                       fontSize={fontSize}
                     >
 
-                      {Array.from({ length: number.length }).map((_, j) => {
-                        
-                        return (
-                          <TSpan
-                            x={x}
-                            dy={fontSize}
-                            key={`arc-${i}-slice-${j}`}
-                          >
-                            {number.charAt(j)}
-                          </TSpan>
-                        );
-                      })}
+                      <TSpan>{arc.value}</TSpan>
+
                     </Text>
                   </G>
                 </G>
@@ -201,7 +206,6 @@ _renderWinner = (winner) => {
 
 const App = () => {
 
-
   const [enabled, setEnabled] = React.useState(true); 
   const [finished, setFinished] = React.useState(false);
   const [winner, setWinner] = React.useState(null);
@@ -213,8 +217,9 @@ const eventID = '28066575.20';
 const bettypeID = '220320666.20';
 
 
-async function fetchHorseData(){
-fetch("https://xml2.betfred.com/horse-racing-uk.xml")
+function fetchHorseData (){
+  return new Promise((resolve) => {
+    fetch("https://xml2.betfred.com/horse-racing-uk.xml")
 .then(response => response.text())
 .then(data => {
   const parser = new DOMParser();
@@ -224,27 +229,27 @@ fetch("https://xml2.betfred.com/horse-racing-uk.xml")
 
  if (eventInfo.childNodes[0].getAttribute("bettypeid") === bettypeID) {
 
-  const horses = eventInfo.childNodes[0].children;
+  const horseInfo = eventInfo.childNodes[0].children;
 
-  horseArr = Array.from(horses);
+  horseArr = Array.from(horseInfo);
 
-  return setHorses(horseArr);
+  setHorses(horseArr);
+  resolve(horseArr);
   }
-
+  });
 })
 .catch(console.error);
-  }
-
-
+}
 
   React.useEffect(() => {
-    
-   fetchHorseData();
-   
-
-   const _wheelPaths = makeWheel();
- 
-   setWheelyData(_wheelPaths);
+   async function goFetchHorseData() {
+    const result = await fetchHorseData();
+  
+    const _wheelPaths = makeWheel(result);
+    setWheelyData(_wheelPaths);
+  }
+  
+  goFetchHorseData();
 
     _angle.addListener(event => {
       if (enabled) {
@@ -259,18 +264,21 @@ fetch("https://xml2.betfred.com/horse-racing-uk.xml")
 
  // 
 
-  const getWinnerIndex = () => {
+  const getWinnerIndex = (horseTotal) => {
+
+    angleBySegment = oneTurn / horseTotal;
+
     const deg = Math.abs(Math.round(angle % oneTurn));
     // wheel turning counterclockwise
     if(angle < 0) {
       return Math.floor(deg / angleBySegment);
     }
     // wheel turning clockwise
-    return (numberOfSegments - Math.floor(deg / angleBySegment)) % numberOfSegments;
+    return (horseTotal - Math.floor(deg / angleBySegment)) % horseTotal;
   };
   
   const onPan = ({ nativeEvent }) => {
-  
+
     if (nativeEvent.state === State.END) {
       const { velocityY } = nativeEvent;
   
@@ -280,13 +288,13 @@ fetch("https://xml2.betfred.com/horse-racing-uk.xml")
         useNativeDriver: true
       }).start(() => {
         _angle.setValue(angle % oneTurn);
-        const snapTo = snap(oneTurn / numberOfSegments);
+        const snapTo = snap(oneTurn / horses.length);
         Animated.timing(_angle, {
           toValue: snapTo(angle),
           duration: 300,
           useNativeDriver: true
         }).start(() => {
-          const winnerIndex = getWinnerIndex();
+          const winnerIndex = getWinnerIndex(horses.length);
           setEnabled(true);
           setFinished(true);
           setWinner(wheelyData[winnerIndex].value);
@@ -303,10 +311,8 @@ fetch("https://xml2.betfred.com/horse-racing-uk.xml")
         {wheelyData !== undefined ? 
         <View style={styles.container}>
        
-            
-              <RenderSvgWheel wheelyData={wheelyData}></RenderSvgWheel>
+              <RenderSvgWheel wheelyData={wheelyData} horses={horses}></RenderSvgWheel>
           
-            
           {finished && enabled && _renderWinner(winner)}
 
         </View>
